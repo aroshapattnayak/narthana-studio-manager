@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DanceApp · Fee Manager</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script>
+      // localStorage polyfill for window.storage
+      if (!window.storage) {
+        window.storage = {
+          get: function(key) {
+            var val = localStorage.getItem(key);
+            return Promise.resolve(val ? { value: val } : null);
+          },
+          set: function(key, value) {
+            localStorage.setItem(key, value);
+            return Promise.resolve();
+          }
+        };
+      }
+
+      // Fetch DanceApp_3.jsx, strip the ESM import/export lines that
+      // conflict with UMD React, expose hooks as globals, then mount.
+      fetch("./DanceApp_3.jsx")
+        .then(r => r.text())
+        .then(src => {
+          // 1. Replace the ESM import with UMD-style destructuring
+          src = src.replace(
+            /^import\s*\{[^}]+\}\s*from\s*["']react["'];?/m,
+            "const { useState, useEffect, useCallback } = React;"
+          );
+          // 2. Strip the export keyword so App is just a function in scope
+          src = src.replace(/^export\s+default\s+/m, "");
+          // 3. Append mounting code
+          src += "\nReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));";
+
+          // 4. Transpile with Babel and evaluate
+          const output = Babel.transform(src, { presets: ["react"] }).code;
+          // eslint-disable-next-line no-new-func
+          new Function(output)();
+        })
+        .catch(err => {
+          document.getElementById("root").innerHTML =
+            "<pre style='color:red;padding:20px'>" + err + "</pre>";
+        });
+    </script>
+  </body>
+</html>

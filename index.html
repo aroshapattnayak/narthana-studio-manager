@@ -10,24 +10,28 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
   </head>
   <body>
     <div id="root"></div>
 
     <script>
-      // localStorage polyfill for window.storage
-      if (!window.storage) {
-        window.storage = {
-          get: function(key) {
-            var val = localStorage.getItem(key);
-            return Promise.resolve(val ? { value: val } : null);
-          },
-          set: function(key, value) {
-            localStorage.setItem(key, value);
-            return Promise.resolve();
-          }
-        };
-      }
+      // Initialize Firebase
+      firebase.initializeApp({
+        apiKey: "AIzaSyBJFRQQQxNusmZGfUgwdWUcZRIsoFaUSCo",
+        authDomain: "dance-app-ccf55.firebaseapp.com",
+        projectId: "dance-app-ccf55",
+        storageBucket: "dance-app-ccf55.firebasestorage.app",
+        messagingSenderId: "31796482116",
+        appId: "1:31796482116:web:00133920270f24e7d2ac11"
+      });
+      window.db = firebase.firestore();
+      // Enable offline persistence (works when phone has no signal)
+      window.db.enablePersistence().catch(function(err) {
+        console.log("Persistence:", err.code);
+      });
 
       // Fetch DanceApp_3.jsx, strip the ESM import/export lines that
       // conflict with UMD React, expose hooks as globals, then mount.
@@ -37,7 +41,7 @@
           // 1. Replace the ESM import with UMD-style destructuring
           src = src.replace(
             /^import\s*\{[^}]+\}\s*from\s*["']react["'];?/m,
-            "const { useState, useEffect, useCallback } = React;"
+            "const { useState, useEffect, useCallback, useRef } = React;"
           );
           // 2. Strip the export keyword so App is just a function in scope
           src = src.replace(/^export\s+default\s+/m, "");

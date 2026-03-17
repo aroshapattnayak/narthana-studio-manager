@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Fonts ─────────────────────────────────────────────────────────────────────
 const fl = document.createElement("link");
@@ -20,9 +20,10 @@ const fmt$ = n => `$${Number(n).toFixed(2)}`;
 const fmtD = d => new Date(d).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
 
-// ── Storage ───────────────────────────────────────────────────────────────────
-async function sg(k) { try { const r = await window.storage.get(k); return r ? JSON.parse(r.value) : null; } catch { return null; } }
-async function ss(k, v) { try { await window.storage.set(k, JSON.stringify(v)); } catch {} }
+// ── Firestore helpers ─────────────────────────────────────────────────────────
+const db = () => window.db;
+const fsSet = (col, id, data) => { try { db()?.collection(col).doc(id).set(data); } catch(e) { console.error("Firestore write error", e); } };
+const fsDel = (col, id) => { try { db()?.collection(col).doc(id).delete(); } catch(e) { console.error("Firestore delete error", e); } };
 
 // ── Seed data ─────────────────────────────────────────────────────────────────
 const STUDENTS0 = [
@@ -565,6 +566,139 @@ const PaymentModal = ({ payment, students, onSave, onClose }) => {
   );
 };
 
+// ── Quick Pay Modal (mobile-optimized) ────────────────────────────────────────
+const QuickPayModal = ({ students, payments, onSave, onClose }) => {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(null);
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0,10));
+  const [method, setMethod] = useState("Zelle");
+  const [note, setNote] = useState("");
+  const inputRef = useRef(null);
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
+
+  const cm = thisMonth();
+  const active = students.filter(s => s.active);
+  const matches = q.length >= 1 ? active.filter(s =>
+    s.name.toLowerCase().includes(q.toLowerCase()) ||
+    s.parentName.toLowerCase().includes(q.toLowerCase())
+  ).slice(0, 6) : [];
+
+  const selectStudent = (s) => { setSel(s); setAmount(s.fee); setQ(""); };
+
+  const handleSave = () => {
+    if (!sel || !amount) return;
+    onSave({ id:uid(), sid:sel.id, amount:Number(amount), date, method, status:"paid", note });
+  };
+
+  // Unpaid students for quick one-tap
+  const paidIds = new Set(payments.filter(p=>p.date.startsWith(cm)&&p.status==="paid").map(p=>p.sid));
+  const unpaid = active.filter(s => !paidIds.has(s.id));
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <h3 style={{ fontFamily:"'Playfair Display',serif", color:C.b800, fontSize:20 }}>Quick Pay</h3>
+        <Btn variant="ghost" sm onClick={onClose}><Icon name="x" size={16}/></Btn>
+      </div>
+
+      {!sel ? (
+        <>
+          {/* Search by student or parent name */}
+          <div style={{ position:"relative", marginBottom:10 }}>
+            <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", pointerEvents:"none" }}>
+              <Icon name="search" size={15} color={C.g500}/>
+            </span>
+            <input ref={inputRef} value={q} onChange={e=>setQ(e.target.value)}
+              placeholder="Search student or parent name..."
+              style={{ ...inputStyle, paddingLeft:38, fontSize:16 }}
+              inputMode="search" autoComplete="off"/>
+          </div>
+
+          {/* Search results */}
+          {matches.length > 0 && (
+            <div style={{ marginBottom:12, maxHeight:200, overflowY:"auto" }}>
+              {matches.map(s => {
+                const paid = paidIds.has(s.id);
+                return (
+                  <button type="button" key={s.id} onClick={() => selectStudent(s)}
+                    style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"12px 14px", border:"none", borderBottom:`1px solid ${C.a100}`, background:paid?"#f0fdf4":C.white, cursor:"pointer", fontFamily:"'Lato',sans-serif", textAlign:"left" }}>
+                    <div>
+                      <p style={{ fontWeight:700, fontSize:14, color:C.b800 }}>{s.name}</p>
+                      <p style={{ fontSize:12, color:C.g500 }}>{s.parentName}</p>
+                    </div>
+                    <div style={{ textAlign:"right", flexShrink:0 }}>
+                      <p style={{ fontWeight:700, color:C.a700 }}>{fmt$(s.fee)}</p>
+                      {paid && <span style={{ fontSize:10, color:"#059669", fontWeight:700 }}>PAID</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Unpaid this month — quick tap list */}
+          {q.length === 0 && (
+            <div>
+              <p style={{ fontSize:12, fontWeight:700, color:C.g500, marginBottom:8, textTransform:"uppercase", letterSpacing:".05em" }}>
+                Unpaid this month ({unpaid.length})
+              </p>
+              <div style={{ maxHeight:300, overflowY:"auto" }}>
+                {unpaid.map(s => (
+                  <button type="button" key={s.id} onClick={() => selectStudent(s)}
+                    style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 12px", border:"none", borderBottom:`1px solid ${C.a100}`, background:C.white, cursor:"pointer", fontFamily:"'Lato',sans-serif", textAlign:"left" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                      <div style={{ width:30, height:30, borderRadius:10, background:`linear-gradient(135deg,${C.a400},${C.b700})`, display:"flex", alignItems:"center", justifyContent:"center", color:C.white, fontFamily:"'Playfair Display',serif", fontWeight:700, fontSize:13, flexShrink:0 }}>
+                        {s.name[0]}
+                      </div>
+                      <div>
+                        <p style={{ fontWeight:700, fontSize:13, color:C.b800 }}>{s.name}</p>
+                        <p style={{ fontSize:11, color:C.g500 }}>{s.parentName}</p>
+                      </div>
+                    </div>
+                    <span style={{ fontWeight:700, color:C.a700, fontSize:14, flexShrink:0 }}>{fmt$(s.fee)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Selected student — fill in details */}
+          <div style={{ background:C.a50, borderRadius:12, padding:14, marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <div>
+              <p style={{ fontWeight:700, color:C.b800 }}>{sel.name}</p>
+              <p style={{ fontSize:12, color:C.g500 }}>{sel.parentName}</p>
+            </div>
+            <Btn variant="ghost" sm onClick={() => { setSel(null); setAmount(""); }}><Icon name="x" size={14}/>Change</Btn>
+          </div>
+          <div style={{ display:"grid", gap:12 }}>
+            <Field label="Amount ($)"><input style={{ ...inputStyle, fontSize:18, fontWeight:700 }} type="number" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)}/></Field>
+            <Field label="Date"><input style={inputStyle} type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field>
+            <Field label="Method">
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {["Zelle","Cash","Check","Venmo"].map(m => (
+                  <button type="button" key={m} onClick={() => setMethod(m)}
+                    style={{ ...BTN_BASE, padding:"8px 16px", fontSize:14, background:method===m?`linear-gradient(135deg,${C.a600},${C.b700})`:C.a100, color:method===m?C.white:C.b800, border:method===m?"none":`1.5px solid ${C.a200}` }}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <Field label="Note (optional)"><input style={inputStyle} value={note} onChange={e=>setNote(e.target.value)} placeholder="e.g. March tuition"/></Field>
+          </div>
+          <div style={{ height:1, background:C.a100, margin:"16px 0" }}/>
+          <button type="button" onClick={handleSave} disabled={!sel||!amount}
+            style={{ ...BTN_BASE, width:"100%", justifyContent:"center", padding:"14px 18px", fontSize:16, background:`linear-gradient(135deg,${C.a600},${C.b700})`, color:C.white, boxShadow:"0 3px 12px rgba(180,83,9,.28)", opacity:(!sel||!amount)?.5:1 }}>
+            <Icon name="check" size={18} color={C.white}/> Save Payment
+          </button>
+        </>
+      )}
+    </Modal>
+  );
+};
+
 // ── Invoice Modal ─────────────────────────────────────────────────────────────
 const InvoiceModal = ({ student, payments, onClose }) => {
   const sp = payments.filter(p=>p.sid===student.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -1077,95 +1211,74 @@ export default function App() {
     return () => window.removeEventListener("resize", h);
   }, []);
 
-  const [lastSaved, setLastSaved] = useState(null);
-  const [showExport, setShowExport] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importError, setImportError] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [quickPay, setQuickPay] = useState(false);
+  const [syncStatus, setSyncStatus] = useState("loading"); // loading | synced | offline
 
-  const DB_VER = "v25-mar13";
-
-  // Load from local storage on mount
+  // ── Firestore: migrate seed data + real-time sync ──
   useEffect(() => {
-    (async () => {
-      try {
-        const ver = await sg("da:ver");
-        if (ver !== DB_VER) {
-          await ss("da:students", STUDENTS0);
-          await ss("da:payments", PAYMENTS0);
-          await ss("da:ver", DB_VER);
-        } else {
-          const s = await sg("da:students"), p = await sg("da:payments");
-          if (s) setStudents(s);
-          if (p) setPayments(p);
-        }
-      } catch(e) { console.error("Storage load error", e); }
+    const fireDb = window.db;
+    if (!fireDb) { setReady(true); setSyncStatus("offline"); return; }
+
+    let unsubStudents = null, unsubPayments = null;
+
+    // Migration: if Firestore is empty, seed it with STUDENTS0 + PAYMENTS0
+    fireDb.collection('students').limit(1).get().then(snap => {
+      if (snap.empty) {
+        setSyncStatus("loading");
+        // Fix duplicate IDs in PAYMENTS0 (pm032 appears twice)
+        const seen = new Set();
+        const fixedPayments = PAYMENTS0.map(p => {
+          if (seen.has(p.id)) return { ...p, id: p.id + "_" + uid() };
+          seen.add(p.id);
+          return p;
+        });
+        const batch = fireDb.batch();
+        STUDENTS0.forEach(s => batch.set(fireDb.collection('students').doc(s.id), s));
+        fixedPayments.forEach(p => batch.set(fireDb.collection('payments').doc(p.id), p));
+        return batch.commit();
+      }
+    }).then(() => {
+      // Real-time listeners — data auto-syncs across all devices
+      unsubStudents = fireDb.collection('students').onSnapshot(snap => {
+        const data = snap.docs.map(d => d.data());
+        if (data.length > 0) setStudents(data);
+        setReady(true);
+        setSyncStatus("synced");
+      }, err => { console.error("Students listener error", err); setSyncStatus("offline"); setReady(true); });
+
+      unsubPayments = fireDb.collection('payments').onSnapshot(snap => {
+        const data = snap.docs.map(d => d.data());
+        setPayments(data);
+      }, err => { console.error("Payments listener error", err); });
+    }).catch(err => {
+      console.error("Firestore init error", err);
+      setSyncStatus("offline");
       setReady(true);
-    })();
+    });
+
+    return () => { if (unsubStudents) unsubStudents(); if (unsubPayments) unsubPayments(); };
   }, []);
 
-  // Auto-save to local storage on every change
-  useEffect(() => {
-    if (!ready) return;
-    const t = setTimeout(async () => {
-      await ss("da:students", students);
-      await ss("da:payments", payments);
-      setLastSaved(new Date());
-    }, 800);
-    return () => clearTimeout(t);
-  }, [students, payments, ready]);
-
-  // Export current data as JSON (for Claude to backup)
-  const exportData = () => {
-    const json = JSON.stringify({ students, payments, exportedAt: new Date().toISOString() }, null, 2);
-    setShowExport(json);
+  // CRUD — optimistic local update + Firestore write (onSnapshot confirms)
+  const saveStu = s => {
+    setStudents(p => p.find(x=>x.id===s.id) ? p.map(x=>x.id===s.id?s:x) : [...p,s]);
+    setStuModal(null);
+    fsSet('students', s.id, s);
   };
-
-  // Copy with fallback for sandboxed iframes
-  const copyToClipboard = (text) => {
-    try {
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
-      } else {
-        fallbackCopy(text);
-      }
-    } catch(e) { fallbackCopy(text); }
+  const deleteStu = id => setConfirm({
+    message:"This will permanently remove the student and all associated data.",
+    onConfirm:() => { setStudents(p=>p.filter(s=>s.id!==id)); setConfirm(null); fsDel('students', id); }
+  });
+  const savePay = p => {
+    setPayments(prev => prev.find(x=>x.id===p.id) ? prev.map(x=>x.id===p.id?p:x) : [...prev,p]);
+    setPayModal(null);
+    setQuickPay(false);
+    fsSet('payments', p.id, p);
   };
-
-  const fallbackCopy = (text) => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    try { document.execCommand("copy"); } catch(e) {}
-    document.body.removeChild(ta);
-  };
-
-  // Import: paste JSON from Claude to restore data on this device
-  const importData = () => {
-    try {
-      const d = JSON.parse(importText);
-      if (!d.students || !d.payments) throw new Error("Invalid format");
-      setStudents(d.students);
-      setPayments(d.payments);
-      setShowExport(false);
-      setImportText("");
-      setImportError("");
-    } catch(e) {
-      setImportError("Invalid data — paste the JSON exactly as provided by Claude");
-    }
-  };
-
-  // No-op kept for UI compatibility
-  const syncNow = useCallback(() => {}, []);
-
-  // CRUD — state updates trigger the saveTimer useEffect above
-  const saveStu = s => { setStudents(p => p.find(x=>x.id===s.id) ? p.map(x=>x.id===s.id?s:x) : [...p,s]); setStuModal(null); };
-  const deleteStu = id => setConfirm({ message:"This will permanently remove the student and all associated data.", onConfirm:() => { setStudents(p=>p.filter(s=>s.id!==id)); setConfirm(null); }});
-  const savePay = p => { setPayments(prev => prev.find(x=>x.id===p.id) ? prev.map(x=>x.id===p.id?p:x) : [...prev,p]); setPayModal(null); };
-  const deletePay = id => setConfirm({ message:"This will permanently delete this payment record.", onConfirm:() => { setPayments(p=>p.filter(x=>x.id!==id)); setConfirm(null); }});
+  const deletePay = id => setConfirm({
+    message:"This will permanently delete this payment record.",
+    onConfirm:() => { setPayments(p=>p.filter(x=>x.id!==id)); setConfirm(null); fsDel('payments', id); }
+  });
 
   // Zelle auto-match (called by conversation layer)
   const applyZelleMatches = useCallback((senderNames) => {
@@ -1246,13 +1359,12 @@ export default function App() {
               })}
             </nav>
             <div style={{ padding:"14px 20px", borderTop:`1px solid ${C.a100}` }}>
-              <button type="button" onClick={exportData} style={{ width:"100%", display:"flex", alignItems:"center", gap:8, padding:"9px 12px", borderRadius:10, border:`1.5px solid ${C.a200}`, cursor:"pointer", background:C.white, color:C.g500, fontFamily:"'Lato',sans-serif", fontWeight:700, fontSize:12, transition:"all .18s", marginBottom:6 }}>
-                <Icon name="download" size={13} color={C.g500}/>
-                Backup / Cross-device sync
-              </button>
-              <p style={{ fontSize:10, color:C.g300 }}>
-                {lastSaved ? `✓ Saved ${lastSaved.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}` : "Auto-saves locally"}
-              </p>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <div style={{ width:8, height:8, borderRadius:4, background:syncStatus==="synced"?"#10b981":syncStatus==="loading"?"#f59e0b":"#ef4444" }}/>
+                <p style={{ fontSize:11, color:C.g500, fontWeight:700 }}>
+                  {syncStatus==="synced"?"Cloud synced":syncStatus==="loading"?"Syncing...":"Offline mode"}
+                </p>
+              </div>
             </div>
           </aside>
         )}
@@ -1269,11 +1381,12 @@ export default function App() {
                 <span style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:600, color:C.b900 }}>DanceApp</span>
               </div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <button type="button" onClick={exportData} style={{ display:"flex", alignItems:"center", gap:5, padding:"6px 10px", borderRadius:8, border:`1.5px solid ${C.a200}`, background:C.white, cursor:"pointer", color:C.g500, fontFamily:"'Lato',sans-serif", fontWeight:700, fontSize:11 }}>
-                  <Icon name="download" size={12} color={C.g500}/>
-                  Backup
-                </button>
-                <span style={{ fontSize:14, color:C.g500, fontWeight:700 }}>{NAV.find(n=>n.id===page)?.label}</span>
+                <div style={{ display:"flex", alignItems:"center", gap:4, padding:"5px 10px", borderRadius:8, background:syncStatus==="synced"?"#ecfdf5":syncStatus==="loading"?"#fffbeb":"#fef2f2" }}>
+                  <div style={{ width:6, height:6, borderRadius:3, background:syncStatus==="synced"?"#10b981":syncStatus==="loading"?"#f59e0b":"#ef4444" }}/>
+                  <span style={{ fontSize:10, fontWeight:700, color:syncStatus==="synced"?"#059669":syncStatus==="loading"?"#d97706":"#dc2626" }}>
+                    {syncStatus==="synced"?"Synced":syncStatus==="loading"?"Syncing...":"Offline"}
+                  </span>
+                </div>
               </div>
             </header>
           )}
@@ -1299,6 +1412,26 @@ export default function App() {
               );
             })}
           </nav>
+        )}
+
+        {/* ── Quick Pay FAB (mobile) ── */}
+        {!wide && (
+          <button type="button" onClick={() => setQuickPay(true)}
+            style={{ position:"fixed", bottom:78, right:18, width:56, height:56, borderRadius:28, background:`linear-gradient(135deg,${C.a500},${C.b700})`, color:C.white, border:"none", boxShadow:"0 4px 20px rgba(180,83,9,.4)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:90, transition:"transform .15s" }}
+            onTouchStart={e => e.currentTarget.style.transform="scale(0.92)"}
+            onTouchEnd={e => e.currentTarget.style.transform=""}>
+            <Icon name="dollar" size={24} color={C.white}/>
+          </button>
+        )}
+
+        {/* ── Quick Pay Modal ── */}
+        {quickPay && (
+          <QuickPayModal
+            students={students}
+            payments={payments}
+            onSave={savePay}
+            onClose={() => setQuickPay(false)}
+          />
         )}
 
         {/* ── Modals ── */}
@@ -1334,36 +1467,7 @@ export default function App() {
           />
         )}
 
-        {/* ── Export / Import Modal ── */}
-        {showExport && (
-          <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.55)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center", padding:20 }}>
-            <div style={{ background:C.white, borderRadius:16, padding:24, width:"100%", maxWidth:540, fontFamily:"'Lato',sans-serif", boxShadow:"0 20px 60px rgba(0,0,0,.25)" }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
-                <h2 style={{ margin:0, fontSize:18, fontFamily:"'Playfair Display',serif", color:C.b900 }}>Backup & Cross-Device Sync</h2>
-                <button type="button" onClick={()=>{setShowExport(false);setImportText("");setImportError("");}} style={{ background:"none", border:"none", cursor:"pointer", fontSize:20, color:C.g400 }}>✕</button>
-              </div>
-
-              <p style={{ fontSize:13, color:C.g500, marginBottom:12 }}>
-                <strong>To sync to another device:</strong> Copy this JSON and paste it to Claude in a new conversation, saying "restore my DanceApp data". Claude will save it and give you back a fresh version to import below.
-              </p>
-
-              <textarea readOnly value={typeof showExport === "string" ? showExport : ""} onClick={e=>e.target.select()} style={{ width:"100%", height:120, fontSize:11, fontFamily:"monospace", borderRadius:8, border:`1px solid ${C.a200}`, padding:10, resize:"vertical", background:C.cream, color:C.b900, boxSizing:"border-box", cursor:"text" }}/>
-
-              <button type="button" onClick={()=>{ if(typeof showExport==="string") copyToClipboard(showExport); setCopied(true); setTimeout(()=>setCopied(false),2000); }} style={{ width:"100%", padding:"10px", borderRadius:8, background:copied?"#16a34a":C.a600, border:"none", color:C.white, fontFamily:"'Lato',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", marginTop:8, marginBottom:20 }}>
-                {copied ? "✅ Copied!" : "📋 Copy JSON to Clipboard"}
-              </button>
-
-              <p style={{ fontSize:13, color:C.g500, marginBottom:8 }}>
-                <strong>To restore data here</strong> (paste JSON from Claude):
-              </p>
-              <textarea value={importText} onChange={e=>setImportText(e.target.value)} placeholder='Paste JSON here...' style={{ width:"100%", height:80, fontSize:11, fontFamily:"monospace", borderRadius:8, border:`1.5px solid ${importError?'#dc2626':C.a200}`, padding:10, resize:"vertical", boxSizing:"border-box" }}/>
-              {importError && <p style={{ fontSize:11, color:"#dc2626", margin:"4px 0" }}>{importError}</p>}
-              <button type="button" onClick={importData} disabled={!importText.trim()} style={{ width:"100%", padding:"10px", borderRadius:8, background:importText.trim()?C.b800:"#ccc", border:"none", color:C.white, fontFamily:"'Lato',sans-serif", fontWeight:700, fontSize:13, cursor:importText.trim()?"pointer":"default", marginTop:8 }}>
-                ✅ Import & Restore Data
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Cloud-synced — no export/import needed */}
       </div>
     </>
   );

@@ -1193,8 +1193,8 @@ const NAV = [
 // ── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("dashboard");
-  const [students, setStudents] = useState(STUDENTS0);
-  const [payments, setPayments] = useState(PAYMENTS0);
+  const [students, setStudents] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [ready, setReady] = useState(false);
   const [wide, setWide] = useState(() => typeof window !== "undefined" ? window.innerWidth >= 768 : true);
 
@@ -1248,7 +1248,7 @@ export default function App() {
 
       unsubPayments = fireDb.collection('payments').onSnapshot(snap => {
         const data = snap.docs.map(d => d.data());
-        setPayments(data);
+        if (data.length > 0) setPayments(data);
       }, err => { console.error("Payments listener error", err); });
     }).catch(err => {
       console.error("Firestore init error", err);

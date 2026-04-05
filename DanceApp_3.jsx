@@ -782,25 +782,64 @@ const StatCard = ({ label, value, sub, icon, color }) => (
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
+  const [selMonth, setSelMonth] = useState(thisMonth());
   const active = students.filter(s=>s.active);
-  const cm = thisMonth();
-  const cmP = payments.filter(p=>p.date.startsWith(cm)&&p.status==="paid");
-  const revenue = cmP.reduce((t,p)=>t+p.amount,0);
-  const paidIds = new Set(cmP.map(p=>p.sid));
+  const isCurrent = selMonth === thisMonth();
+
+  // Navigate months
+  const shiftMonth = (dir) => {
+    const [y, m] = selMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + dir, 1);
+    setSelMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`);
+  };
+  const monthLabel = new Date(selMonth + "-15").toLocaleDateString("en-US", { month:"long", year:"numeric" });
+
+  // Selected month data
+  const mP = payments.filter(p=>p.date.startsWith(selMonth)&&p.status==="paid");
+  const revenue = mP.reduce((t,p)=>t+p.amount,0);
+  const paidIds = new Set(mP.map(p=>p.sid));
   const unpaid = active.filter(s=>!paidIds.has(s.id));
   const expected = active.reduce((t,s)=>t+s.fee,0);
   const pct = expected > 0 ? Math.min(Math.round(revenue/expected*100), 100) : 0;
-  const recent = [...payments].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
+
+  // Monthly history (last 6 months)
+  const monthHistory = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(); d.setMonth(d.getMonth() - i);
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label = d.toLocaleDateString("en-US", { month:"short", year:"2-digit" });
+    const mp = payments.filter(p=>p.date.startsWith(key)&&p.status==="paid");
+    const rev = mp.reduce((t,p)=>t+p.amount,0);
+    const paidCount = new Set(mp.map(p=>p.sid)).size;
+    monthHistory.push({ key, label, revenue: rev, paid: paidCount });
+  }
+  const maxRev = Math.max(...monthHistory.map(m=>m.revenue), 1);
+
+  // Recent payments for selected month
+  const recentForMonth = [...mP].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
 
   return (
     <div>
       <h1 style={{ fontFamily:"'Playfair Display',serif", color:C.b900, fontSize:28, marginBottom:4 }}>Good day! 🌟</h1>
-      <p style={{ color:C.g500, marginBottom:22, fontSize:14 }}>{new Date().toLocaleDateString("en-US",{month:"long",year:"numeric"})}</p>
+
+      {/* Month navigator */}
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18 }}>
+        <button type="button" onClick={() => shiftMonth(-1)} style={{ ...BTN_BASE, padding:"8px 12px", background:C.a100, color:C.b800, border:`1.5px solid ${C.a200}` }}>
+          ←
+        </button>
+        <div style={{ textAlign:"center" }}>
+          <p style={{ fontWeight:700, color:C.b800, fontSize:16 }}>{monthLabel}</p>
+          {!isCurrent && <button type="button" onClick={() => setSelMonth(thisMonth())} style={{ background:"none", border:"none", color:C.a600, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:"'Lato',sans-serif", marginTop:2 }}>Back to current →</button>}
+        </div>
+        <button type="button" onClick={() => shiftMonth(1)} disabled={isCurrent} style={{ ...BTN_BASE, padding:"8px 12px", background:isCurrent?C.a50:C.a100, color:isCurrent?C.g300:C.b800, border:`1.5px solid ${C.a200}`, cursor:isCurrent?"default":"pointer" }}>
+          →
+        </button>
+      </div>
 
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, marginBottom:16 }}>
         <StatCard label="Students" value={active.length} sub={`${students.filter(s=>!s.active).length} inactive`} icon="users" color={C.a600}/>
         <StatCard label="Revenue" value={fmt$(revenue)} sub={`${pct}% of ${fmt$(expected)}`} icon="dollar" color={C.b700}/>
-        <StatCard label="Paid" value={paidIds.size} sub="this month" icon="check" color="#059669"/>
+        <StatCard label="Paid" value={paidIds.size} sub={isCurrent?"this month":monthLabel.split(" ")[0]} icon="check" color="#059669"/>
         <StatCard label="Pending" value={unpaid.length} sub="need payment" icon="bell" color="#dc2626"/>
       </div>
 
@@ -816,23 +855,39 @@ const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
         <p style={{ fontSize:12, color:C.g500, marginTop:5 }}>{fmt$(revenue)} of {fmt$(expected)} expected</p>
       </div>
 
-      {/* Quick actions */}
+      {/* Monthly collection history */}
       <div style={{ ...CARD, marginBottom:14 }}>
-        <p style={{ fontSize:13, fontWeight:700, color:C.b800, marginBottom:12 }}>Quick Actions</p>
-        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-          <Btn sm onClick={addPayment}><Icon name="plus" size={13}/>Record Payment</Btn>
-          <Btn variant="secondary" sm onClick={addStudent}><Icon name="plus" size={13}/>Add Student</Btn>
-          <Btn variant="secondary" sm onClick={()=>setPage("messages")}><Icon name="zap" size={13}/>Scan Zelle</Btn>
+        <p style={{ fontSize:13, fontWeight:700, color:C.b800, marginBottom:14 }}>Collection History</p>
+        <div style={{ display:"flex", gap:6, alignItems:"flex-end", height:80 }}>
+          {[...monthHistory].reverse().map(m => (
+            <button type="button" key={m.key} onClick={() => setSelMonth(m.key)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:4, background:"none", border:"none", cursor:"pointer", fontFamily:"'Lato',sans-serif", padding:0 }}>
+              <span style={{ fontSize:10, fontWeight:700, color:m.key===selMonth?C.b800:C.g500 }}>{fmt$(m.revenue).replace(".00","")}</span>
+              <div style={{ width:"100%", borderRadius:6, background:m.key===selMonth?`linear-gradient(180deg,${C.a400},${C.b700})`:C.a200, height:Math.max(4, (m.revenue/maxRev)*50), transition:"height .3s" }}/>
+              <span style={{ fontSize:9, color:m.key===selMonth?C.b800:C.g500, fontWeight:m.key===selMonth?700:400 }}>{m.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Unpaid this month */}
+      {/* Quick actions — only show for current month */}
+      {isCurrent && (
+        <div style={{ ...CARD, marginBottom:14 }}>
+          <p style={{ fontSize:13, fontWeight:700, color:C.b800, marginBottom:12 }}>Quick Actions</p>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <Btn sm onClick={addPayment}><Icon name="plus" size={13}/>Record Payment</Btn>
+            <Btn variant="secondary" sm onClick={addStudent}><Icon name="plus" size={13}/>Add Student</Btn>
+            <Btn variant="secondary" sm onClick={()=>setPage("messages")}><Icon name="zap" size={13}/>Scan Zelle</Btn>
+          </div>
+        </div>
+      )}
+
+      {/* Unpaid for selected month */}
       {unpaid.length > 0 && (
         <div style={{ ...CARD, borderLeft:`4px solid ${C.a500}`, marginBottom:14 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8 }}>
               <Icon name="warn" color={C.a600} size={16}/>
-              <p style={{ fontWeight:700, color:C.b800, fontSize:14 }}>Unpaid This Month ({unpaid.length})</p>
+              <p style={{ fontWeight:700, color:C.b800, fontSize:14 }}>Unpaid — {monthLabel.split(" ")[0]} ({unpaid.length})</p>
             </div>
             <span style={{ fontSize:11, fontWeight:700, color:C.a700 }}>
               {fmt$(unpaid.reduce((t,s)=>t+s.fee,0))} outstanding
@@ -857,15 +912,15 @@ const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
         </div>
       )}
 
-      {/* Recent payments */}
+      {/* Payments for selected month */}
       <div style={{ ...CARD }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-          <p style={{ fontWeight:700, color:C.b800 }}>Recent Payments</p>
+          <p style={{ fontWeight:700, color:C.b800 }}>{isCurrent ? "Recent Payments" : `${monthLabel.split(" ")[0]} Payments`}</p>
           <Btn variant="ghost" sm onClick={()=>setPage("payments")}>View all →</Btn>
         </div>
-        {recent.length === 0
-          ? <p style={{ color:C.g500, textAlign:"center", padding:20, fontSize:13 }}>No payments yet</p>
-          : recent.map(p => {
+        {recentForMonth.length === 0
+          ? <p style={{ color:C.g500, textAlign:"center", padding:20, fontSize:13 }}>No payments {isCurrent ? "yet" : "this month"}</p>
+          : recentForMonth.map(p => {
               const s = students.find(x=>x.id===p.sid);
               return (
                 <div key={p.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 0", borderBottom:`1px solid ${C.a100}` }}>

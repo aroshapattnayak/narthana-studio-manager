@@ -21,7 +21,7 @@ const fmtD = d => new Date(d).toLocaleDateString("en-US", { month:"short", day:"
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
 const paidForMonth = (payments, sid, month) => payments.some(p => p.sid===sid && p.status==="paid" && (p.months ? p.months.includes(month) : p.date.startsWith(month)));
 const coversMonth = (p, month) => p.months ? p.months.includes(month) : p.date.startsWith(month);
-const getMonthChoices = () => { const out = []; for (let i = -3; i <= 3; i++) { const d = new Date(); d.setMonth(d.getMonth()+i); out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } return out; };
+const getMonthChoices = () => { const out = []; for (let i = -6; i <= 3; i++) { const d = new Date(); d.setMonth(d.getMonth()+i); out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } return out; };
 const monthLabel = m => new Date(m + "-15").toLocaleDateString("en-US", { month:"short", year:"2-digit" });
 
 // ── Firestore helpers ─────────────────────────────────────────────────────────

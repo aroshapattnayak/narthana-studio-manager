@@ -625,7 +625,7 @@ const QuickPayModal = ({ students, payments, onSave, onClose }) => {
 
   // Unpaid students for quick one-tap
   const paidIds = new Set(payments.filter(p=>p.status==="paid"&&coversMonth(p,cm)).map(p=>p.sid));
-  const unpaid = active.filter(s => !paidIds.has(s.id));
+  const unpaid = active.filter(s => !paidIds.has(s.id)).sort((a,b) => a.name.localeCompare(b.name));
 
   return (
     <Modal onClose={onClose}>
@@ -909,17 +909,15 @@ const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
         </div>
       </div>
 
-      {/* Quick actions — only show for current month */}
-      {isCurrent && (
-        <div style={{ ...CARD, marginBottom:14 }}>
-          <p style={{ fontSize:13, fontWeight:700, color:C.b800, marginBottom:12 }}>Quick Actions</p>
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            <Btn sm onClick={addPayment}><Icon name="plus" size={13}/>Record Payment</Btn>
-            <Btn variant="secondary" sm onClick={addStudent}><Icon name="plus" size={13}/>Add Student</Btn>
-            <Btn variant="secondary" sm onClick={()=>setPage("messages")}><Icon name="zap" size={13}/>Scan Zelle</Btn>
-          </div>
+      {/* Quick actions */}
+      <div style={{ ...CARD, marginBottom:14 }}>
+        <p style={{ fontSize:13, fontWeight:700, color:C.b800, marginBottom:12 }}>Quick Actions</p>
+        <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+          <Btn sm onClick={addPayment}><Icon name="plus" size={13}/>Record Payment</Btn>
+          <Btn variant="secondary" sm onClick={addStudent}><Icon name="plus" size={13}/>Add Student</Btn>
+          <Btn variant="secondary" sm onClick={()=>setPage("messages")}><Icon name="zap" size={13}/>Scan Zelle</Btn>
         </div>
-      )}
+      </div>
 
       {/* Unpaid for selected month */}
       {unpaid.length > 0 && (
@@ -1519,15 +1517,15 @@ export default function App() {
           </nav>
         )}
 
-        {/* ── Quick Pay FAB (mobile) ── */}
-        {!wide && (
-          <button type="button" onClick={() => setQuickPay(true)}
-            style={{ position:"fixed", bottom:78, right:18, width:56, height:56, borderRadius:28, background:`linear-gradient(135deg,${C.a500},${C.b700})`, color:C.white, border:"none", boxShadow:"0 4px 20px rgba(180,83,9,.4)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:90, transition:"transform .15s" }}
-            onTouchStart={e => e.currentTarget.style.transform="scale(0.92)"}
-            onTouchEnd={e => e.currentTarget.style.transform=""}>
-            <Icon name="dollar" size={24} color={C.white}/>
-          </button>
-        )}
+        {/* ── Quick Pay FAB ── */}
+        <button type="button" onClick={() => setQuickPay(true)}
+          style={{ position:"fixed", bottom:wide?28:78, right:wide?28:18, width:56, height:56, borderRadius:28, background:`linear-gradient(135deg,${C.a500},${C.b700})`, color:C.white, border:"none", boxShadow:"0 4px 20px rgba(180,83,9,.4)", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", zIndex:90, transition:"transform .15s" }}
+          onMouseDown={e => e.currentTarget.style.transform="scale(0.92)"}
+          onMouseUp={e => e.currentTarget.style.transform=""}
+          onTouchStart={e => e.currentTarget.style.transform="scale(0.92)"}
+          onTouchEnd={e => e.currentTarget.style.transform=""}>
+          <Icon name="dollar" size={24} color={C.white}/>
+        </button>
 
         {/* ── Quick Pay Modal ── */}
         {quickPay && (

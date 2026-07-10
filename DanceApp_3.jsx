@@ -19,6 +19,10 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const fmt$ = n => `$${Number(n).toFixed(2)}`;
 const fmtD = d => new Date(d).toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
 const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+const paidForMonth = (payments, sid, month) => payments.some(p => p.sid===sid && p.status==="paid" && (p.months ? p.months.includes(month) : p.date.startsWith(month)));
+const coversMonth = (p, month) => p.months ? p.months.includes(month) : p.date.startsWith(month);
+const getMonthChoices = () => { const out = []; for (let i = -3; i <= 3; i++) { const d = new Date(); d.setMonth(d.getMonth()+i); out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`); } return out; };
+const monthLabel = m => new Date(m + "-15").toLocaleDateString("en-US", { month:"short", year:"2-digit" });
 
 // ── Firestore helpers ─────────────────────────────────────────────────────────
 const db = () => window.db;
@@ -528,8 +532,17 @@ const StudentModal = ({ student, onSave, onClose }) => {
 
 // ── Payment Modal ─────────────────────────────────────────────────────────────
 const PaymentModal = ({ payment, students, onSave, onClose }) => {
-  const [f, setF] = useState(payment || { sid:"", amount:"", date:new Date().toISOString().slice(0,10), method:"Zelle", status:"paid", note:"" });
+  const cm = thisMonth();
+  const [f, setF] = useState(payment || { sid:"", amount:"", date:new Date().toISOString().slice(0,10), method:"Zelle", status:"paid", note:"", months:[cm] });
   const set = (k, v) => setF(p => ({ ...p, [k]:v }));
+  const choices = getMonthChoices();
+  const selMonths = f.months || (payment ? [] : [cm]);
+  const toggleMonth = (m) => {
+    const cur = selMonths;
+    const next = cur.includes(m) ? cur.filter(x=>x!==m) : [...cur, m].sort();
+    const st = students.find(x=>x.id===f.sid);
+    setF(p => ({ ...p, months:next, amount: st ? st.fee * next.length : p.amount }));
+  };
   return (
     <Modal onClose={onClose}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
@@ -538,10 +551,20 @@ const PaymentModal = ({ payment, students, onSave, onClose }) => {
       </div>
       <div style={{ display:"grid", gap:13 }}>
         <Field label="Student">
-          <select style={inputStyle} value={f.sid} onChange={e=>{ const st=students.find(x=>x.id===e.target.value); setF(p=>({...p,sid:e.target.value,amount:st?.fee||p.amount})); }}>
+          <select style={inputStyle} value={f.sid} onChange={e=>{ const st=students.find(x=>x.id===e.target.value); setF(p=>({...p,sid:e.target.value,amount:st ? st.fee * selMonths.length : p.amount})); }}>
             <option value="">Select student…</option>
             {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
+        </Field>
+        <Field label="Months covered">
+          <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+            {choices.map(m => { const on = selMonths.includes(m); return (
+              <button type="button" key={m} onClick={() => toggleMonth(m)}
+                style={{ ...BTN_BASE, padding:"6px 12px", fontSize:13, background:on?`linear-gradient(135deg,${C.a600},${C.b700})`:C.a50, color:on?C.white:C.b800, border:on?"none":`1.5px solid ${C.a200}`, fontWeight:on?700:400 }}>
+                {monthLabel(m)}
+              </button>
+            ); })}
+          </div>
         </Field>
         <Field label="Amount ($)"><input style={inputStyle} type="number" value={f.amount} onChange={e=>set("amount",e.target.value)} placeholder="0.00"/></Field>
         <Field label="Date"><input style={inputStyle} type="date" value={f.date} onChange={e=>set("date",e.target.value)}/></Field>
@@ -562,7 +585,7 @@ const PaymentModal = ({ payment, students, onSave, onClose }) => {
       <div style={{ height:1, background:C.a100, margin:"18px 0" }}/>
       <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
         <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={() => onSave({ ...f, id:payment?.id||uid(), amount:Number(f.amount) })}><Icon name="check" size={15}/>Save Payment</Btn>
+        <Btn onClick={() => onSave({ ...f, id:payment?.id||uid(), amount:Number(f.amount), months:selMonths })}><Icon name="check" size={15}/>Save Payment</Btn>
       </div>
     </Modal>
   );
@@ -576,25 +599,32 @@ const QuickPayModal = ({ students, payments, onSave, onClose }) => {
   const [date, setDate] = useState(new Date().toISOString().slice(0,10));
   const [method, setMethod] = useState("Zelle");
   const [note, setNote] = useState("");
+  const [selMonths, setSelMonths] = useState([thisMonth()]);
   const inputRef = useRef(null);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
   const cm = thisMonth();
+  const choices = getMonthChoices();
   const active = students.filter(s => s.active);
   const matches = q.length >= 1 ? active.filter(s =>
     s.name.toLowerCase().includes(q.toLowerCase()) ||
     s.parentName.toLowerCase().includes(q.toLowerCase())
   ).slice(0, 6) : [];
 
-  const selectStudent = (s) => { setSel(s); setAmount(s.fee); setQ(""); };
+  const toggleMonth = (m) => {
+    const next = selMonths.includes(m) ? selMonths.filter(x=>x!==m) : [...selMonths, m].sort();
+    setSelMonths(next);
+    if (sel) setAmount(sel.fee * next.length);
+  };
+  const selectStudent = (s) => { setSel(s); setAmount(s.fee * selMonths.length); setQ(""); };
 
   const handleSave = () => {
     if (!sel || !amount) return;
-    onSave({ id:uid(), sid:sel.id, amount:Number(amount), date, method, status:"paid", note });
+    onSave({ id:uid(), sid:sel.id, amount:Number(amount), date, method, status:"paid", note, months:selMonths });
   };
 
   // Unpaid students for quick one-tap
-  const paidIds = new Set(payments.filter(p=>p.date.startsWith(cm)&&p.status==="paid").map(p=>p.sid));
+  const paidIds = new Set(payments.filter(p=>p.status==="paid"&&coversMonth(p,cm)).map(p=>p.sid));
   const unpaid = active.filter(s => !paidIds.has(s.id));
 
   return (
@@ -676,6 +706,16 @@ const QuickPayModal = ({ students, payments, onSave, onClose }) => {
             <Btn variant="ghost" sm onClick={() => { setSel(null); setAmount(""); }}><Icon name="x" size={14}/>Change</Btn>
           </div>
           <div style={{ display:"grid", gap:12 }}>
+            <Field label="Months covered">
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {choices.map(m => { const on = selMonths.includes(m); return (
+                  <button type="button" key={m} onClick={() => toggleMonth(m)}
+                    style={{ ...BTN_BASE, padding:"6px 12px", fontSize:13, background:on?`linear-gradient(135deg,${C.a600},${C.b700})`:C.a50, color:on?C.white:C.b800, border:on?"none":`1.5px solid ${C.a200}`, fontWeight:on?700:400 }}>
+                    {monthLabel(m)}
+                  </button>
+                ); })}
+              </div>
+            </Field>
             <Field label="Amount ($)"><input style={{ ...inputStyle, fontSize:18, fontWeight:700 }} type="number" inputMode="decimal" value={amount} onChange={e=>setAmount(e.target.value)}/></Field>
             <Field label="Date"><input style={inputStyle} type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field>
             <Field label="Method">
@@ -705,7 +745,7 @@ const QuickPayModal = ({ students, payments, onSave, onClose }) => {
 const InvoiceModal = ({ student, payments, onClose }) => {
   const sp = payments.filter(p=>p.sid===student.id).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const total = sp.filter(p=>p.status==="paid").reduce((t,p)=>t+p.amount,0);
-  const due = !sp.some(p=>p.date.startsWith(thisMonth())&&p.status==="paid");
+  const due = !sp.some(p=>p.status==="paid"&&coversMonth(p,thisMonth()));
   return (
     <Modal onClose={onClose} maxWidth={520}>
       {/* Invoice header */}
@@ -795,8 +835,8 @@ const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
   const monthLabel = new Date(selMonth + "-15").toLocaleDateString("en-US", { month:"long", year:"numeric" });
 
   // Selected month data
-  const mP = payments.filter(p=>p.date.startsWith(selMonth)&&p.status==="paid");
-  const revenue = mP.reduce((t,p)=>t+p.amount,0);
+  const mP = payments.filter(p=>p.status==="paid"&&coversMonth(p,selMonth));
+  const revenue = mP.reduce((t,p)=>t+(p.months&&p.months.length>1?p.amount/p.months.length:p.amount),0);
   const paidIds = new Set(mP.map(p=>p.sid));
   const unpaid = active.filter(s=>!paidIds.has(s.id));
   const expected = active.reduce((t,s)=>t+s.fee,0);
@@ -808,8 +848,8 @@ const Dashboard = ({ students, payments, setPage, addPayment, addStudent }) => {
     const d = new Date(); d.setMonth(d.getMonth() - i);
     const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
     const label = d.toLocaleDateString("en-US", { month:"short", year:"2-digit" });
-    const mp = payments.filter(p=>p.date.startsWith(key)&&p.status==="paid");
-    const rev = mp.reduce((t,p)=>t+p.amount,0);
+    const mp = payments.filter(p=>p.status==="paid"&&coversMonth(p,key));
+    const rev = mp.reduce((t,p)=>t+(p.months&&p.months.length>1?p.amount/p.months.length:p.amount),0);
     const paidCount = new Set(mp.map(p=>p.sid)).size;
     monthHistory.push({ key, label, revenue: rev, paid: paidCount });
   }
@@ -978,7 +1018,7 @@ const StudentsPage = ({ students, payments, onAdd, onEdit, onDelete, onInvoice }
 
       <div style={{ display:"grid", gap:12 }}>
         {list.map(s => {
-          const paid = payments.some(p=>p.sid===s.id&&p.date.startsWith(thisMonth())&&p.status==="paid");
+          const paid = paidForMonth(payments,s.id,thisMonth());
           return (
             <div key={s.id} style={{ ...CARD }}>
               <div style={{ display:"flex", gap:12, alignItems:"flex-start", marginBottom:12 }}>
@@ -1026,9 +1066,9 @@ const PaymentsPage = ({ payments, students, onAdd, onEdit, onDelete }) => {
   const [method, setMethod] = useState("all");
   const methods = [...new Set(payments.map(p=>p.method))];
   const filtered = payments
-    .filter(p => (!month||p.date.startsWith(month)) && (method==="all"||p.method===method))
+    .filter(p => (!month||coversMonth(p,month)) && (method==="all"||p.method===method))
     .sort((a,b)=>new Date(b.date)-new Date(a.date));
-  const total = filtered.filter(p=>p.status==="paid").reduce((t,p)=>t+p.amount,0);
+  const total = filtered.filter(p=>p.status==="paid").reduce((t,p)=>t+(month&&p.months&&p.months.length>1?p.amount/p.months.length:p.amount),0);
 
   return (
     <div>
@@ -1106,7 +1146,7 @@ const InvoicesPage = ({ students, payments, onInvoice }) => {
       <p style={{ color:C.g500, fontSize:13, marginBottom:18 }}>Tap any student to view their full invoice</p>
       <div style={{ display:"grid", gap:12 }}>
         {active.map(s => {
-          const paid = payments.some(p=>p.sid===s.id&&p.date.startsWith(thisMonth())&&p.status==="paid");
+          const paid = paidForMonth(payments,s.id,thisMonth());
           const allPaid = payments.filter(p=>p.sid===s.id&&p.status==="paid");
           const totalPaid = allPaid.reduce((t,p)=>t+p.amount,0);
           const last = allPaid.sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
@@ -1219,7 +1259,7 @@ const ZellePage = ({ students, payments }) => {
         <p style={{ fontSize:12, color:C.g500, marginBottom:12 }}>The scanner matches these names against message senders:</p>
         <div style={{ display:"grid", gap:8 }}>
           {students.filter(s=>s.active).map(s => {
-            const paid = payments.some(p=>p.sid===s.id&&p.date.startsWith(thisMonth())&&p.status==="paid");
+            const paid = paidForMonth(payments,s.id,thisMonth());
             return (
               <div key={s.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 14px", background:C.a50, borderRadius:12, border:`1px solid ${C.a100}` }}>
                 <div>
@@ -1351,8 +1391,8 @@ export default function App() {
     for (const name of senderNames) {
       const s = students.find(st => st.active && st.parentName.toLowerCase().split(" ").some(part => name.toLowerCase().includes(part) && part.length > 2));
       if (s) {
-        const already = payments.some(p => p.sid===s.id && p.date.startsWith(cm) && p.status==="paid");
-        if (!already) newPmts.push({ id:uid(), sid:s.id, amount:s.fee, date:new Date().toISOString().slice(0,10), method:"Zelle", status:"paid", note:"Auto-detected from iMessage" });
+        const already = paidForMonth(payments, s.id, cm);
+        if (!already) newPmts.push({ id:uid(), sid:s.id, amount:s.fee, date:new Date().toISOString().slice(0,10), method:"Zelle", status:"paid", note:"Auto-detected from iMessage", months:[cm] });
         result.push({ studentName:s.name, senderName:name, alreadyPaid:already });
       }
     }

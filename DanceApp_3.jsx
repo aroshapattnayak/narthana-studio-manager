@@ -534,6 +534,8 @@ const StudentModal = ({ student, onSave, onClose }) => {
 const PaymentModal = ({ payment, students, onSave, onClose }) => {
   const cm = thisMonth();
   const [f, setF] = useState(payment || { sid:"", amount:"", date:new Date().toISOString().slice(0,10), method:"Zelle", status:"paid", note:"", months:[cm] });
+  const [sq, setSq] = useState("");
+  const [showDrop, setShowDrop] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]:v }));
   const choices = getMonthChoices();
   const selMonths = f.months || (payment ? [] : [cm]);
@@ -543,6 +545,16 @@ const PaymentModal = ({ payment, students, onSave, onClose }) => {
     const st = students.find(x=>x.id===f.sid);
     setF(p => ({ ...p, months:next, amount: st ? st.fee * next.length : p.amount }));
   };
+  const selStudent = students.find(x=>x.id===f.sid);
+  const searchMatches = sq.length >= 1 ? students.filter(s => s.active!==false && (
+    s.name.toLowerCase().includes(sq.toLowerCase()) ||
+    s.parentName.toLowerCase().includes(sq.toLowerCase())
+  )).sort((a,b) => a.name.localeCompare(b.name)).slice(0, 8) : [];
+  const pickStudent = (s) => {
+    setF(p => ({ ...p, sid:s.id, amount:s.fee * selMonths.length }));
+    setSq("");
+    setShowDrop(false);
+  };
   return (
     <Modal onClose={onClose}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
@@ -551,10 +563,34 @@ const PaymentModal = ({ payment, students, onSave, onClose }) => {
       </div>
       <div style={{ display:"grid", gap:13 }}>
         <Field label="Student">
-          <select style={inputStyle} value={f.sid} onChange={e=>{ const st=students.find(x=>x.id===e.target.value); setF(p=>({...p,sid:e.target.value,amount:st ? st.fee * selMonths.length : p.amount})); }}>
-            <option value="">Select student…</option>
-            {students.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          {selStudent && !showDrop ? (
+            <div style={{ ...inputStyle, display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }} onClick={() => setShowDrop(true)}>
+              <div>
+                <span style={{ fontWeight:700, color:C.b800 }}>{selStudent.name}</span>
+                <span style={{ color:C.g500, fontSize:12, marginLeft:8 }}>{selStudent.parentName}</span>
+              </div>
+              <span style={{ color:C.g500, fontSize:12 }}>change</span>
+            </div>
+          ) : (
+            <div style={{ position:"relative" }}>
+              <input style={inputStyle} value={sq} onChange={e=>{ setSq(e.target.value); setShowDrop(true); }}
+                placeholder="Type student or parent name..." autoComplete="off" autoFocus={!payment}/>
+              {showDrop && searchMatches.length > 0 && (
+                <div style={{ position:"absolute", top:"100%", left:0, right:0, background:C.white, border:`1px solid ${C.a200}`, borderRadius:10, boxShadow:"0 8px 24px rgba(120,53,15,.12)", maxHeight:200, overflowY:"auto", zIndex:10 }}>
+                  {searchMatches.map(s => (
+                    <button type="button" key={s.id} onClick={() => pickStudent(s)}
+                      style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px", border:"none", borderBottom:`1px solid ${C.a100}`, background:C.white, cursor:"pointer", fontFamily:"'Lato',sans-serif", textAlign:"left" }}>
+                      <div>
+                        <p style={{ fontWeight:700, fontSize:13, color:C.b800 }}>{s.name}</p>
+                        <p style={{ fontSize:11, color:C.g500 }}>{s.parentName}</p>
+                      </div>
+                      <span style={{ fontWeight:700, color:C.a700, fontSize:13 }}>{fmt$(s.fee)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </Field>
         <Field label="Months covered">
           <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
